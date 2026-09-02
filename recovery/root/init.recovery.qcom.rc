@@ -24,66 +24,67 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-
-import /init.recovery.wifi.rc
-
-on init
-    start vendor.boot-qti
-    setprop prepdecrypt.setpatch true
+# ===========================================================================
+# DIAGNOSTIC (minimal-boot) variant — 仅供定位 fox_14.1 卡 logo 的问题。
+# 策略：把启动链剪到 koaaN(OnePlus15, fox_14.1 可正常启动)同款形态：
+#   * 不在 on fs 提前 start qseecomd / wait ssd / 绑 persist / install_keyring
+#   * 不 import wifi.rc（本轮不需要 WLAN，减少变量）
+#   * 不自动跑 odm.variant-script 与 odm HAL（weaver/vibratorfeature/touch_report）
+#   * 暂不挂 modem/adsp —— 先看能否进橙狐主界面 + adbd
+# 若此版本能进主界面 → 再逐步加回 crypto/解密链，二分定位。
+# ===========================================================================
 
 on early-fs
     write /proc/sys/walt/sched_lib_name "recovery,magiskboot,Updater,updater,update_engine_sideload"
     write /proc/sys/walt/sched_lib_mask_force 255
 
+on init
+    setprop prepdecrypt.setpatch true
+
 on fs
     wait /dev/block/platform/soc/${ro.boot.bootdevice}
     symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice
     write /proc/sys/kernel/firmware_config/force_sysfs_fallback 1
-    chmod 0660 /dev/qseecom
-    chown system drmrpc /dev/qseecom
-    chmod 0664 /dev/ion
-    chown system system /dev/ion
-    # Its SSD listener opens by-name/ssd, which ueventd may not have made yet.
-    wait /dev/block/bootdevice/by-name/ssd 10
-    start vendor.qseecomd
-    mkdir /mnt/vendor 0775 shell system
-    mkdir /mnt/vendor/persist 0775 shell system
-    mkdir /tmp/persist 0775 shell system
-    mount none /tmp/persist /mnt/vendor/persist bind rec
-    install_keyring
-
-on post-fs
-    start odm.variant-script
 
 on boot
     setprop sys.usb.config adb
 
-# qseecomd is up, so the HALs that reach a trustlet through it can follow.
-on property:vendor.sys.listeners.registered=true
-    start vendor.gatekeeper_default
-    start vendor.secure_element
-
-# variant-script has copied this SKU's files into /odm.
-on property:twrp.variant.files_copied=1
-    start odm.vibratorfeature-service
-    start odm.touch_report
-    start odm.weaver-service
-
-on property:twrp.modules.loaded=true
-    # KeyMint stays down until this has pointed the version properties at the
-    # installed system, so start it as early as the mapper nodes allow.
-    start odm.prepdecrypt
-    # Keep the modem image mounted: qca_cld3_peach_v2 loads WLAN firmware
-    # from /vendor/firmware_mnt/image after the driver is inserted.
-    mkdir /vendor/firmware_mnt 0755 root shell
-    mount vfat /dev/block/bootdevice/by-name/modem${ro.boot.slot_suffix} /vendor/firmware_mnt ro,shortname=lower,uid=1000,gid=1000,dmask=227,fmask=337
-    mount none /vendor/firmware_mnt /firmware bind
-    # Load ADSP firmware for PMIC
-    wait /sys/kernel/boot_adsp/boot
-    write /sys/kernel/boot_adsp/boot 1
-    # This make USB-OTG work
-    wait /sys/kernel/boot_adsp/ssr
-    write /sys/kernel/boot_adsp/ssr 1
-    wait /sys/class/power_supply/battery
-    start vendor.health-default
-    setprop twrp.firmware.mounted true
+# ---- 以下整段在诊断版中停用（保留注释便于后续逐块加回） ----
+#
+# on fs
+#     chmod 0660 /dev/qseecom
+#     chown system drmrpc /dev/qseecom
+#     chmod 0664 /dev/ion
+#     chown system system /dev/ion
+#     wait /dev/block/bootdevice/by-name/ssd 10
+#     start vendor.qseecomd
+#     mkdir /mnt/vendor 0775 shell system
+#     mkdir /mnt/vendor/persist 0775 shell system
+#     mkdir /tmp/persist 0775 shell system
+#     mount none /tmp/persist /mnt/vendor/persist bind rec
+#     install_keyring
+#
+# on post-fs
+#     start odm.variant-script
+#
+# on property:vendor.sys.listeners.registered=true
+#     start vendor.gatekeeper_default
+#     start vendor.secure_element
+#
+# on property:twrp.variant.files_copied=1
+#     start odm.vibratorfeature-service
+#     start odm.touch_report
+#     start odm.weaver-service
+#
+# on property:twrp.modules.loaded=true
+#     start odm.prepdecrypt
+#     mkdir /vendor/firmware_mnt 0755 root shell
+#     mount vfat /dev/block/bootdevice/by-name/modem${ro.boot.slot_suffix} /vendor/firmware_mnt ro,shortname=lower,uid=1000,gid=1000,dmask=227,fmask=337
+#     mount none /vendor/firmware_mnt /firmware bind
+#     wait /sys/kernel/boot_adsp/boot
+#     write /sys/kernel/boot_adsp/boot 1
+#     wait /sys/kernel/boot_adsp/ssr
+#     write /sys/kernel/boot_adsp/ssr 1
+#     wait /sys/class/power_supply/battery
+#     start vendor.health-default
+#     setprop twrp.firmware.mounted true
