@@ -66,8 +66,9 @@ jobs:
     - name: Setup environment
       run: |
         export DEBIAN_FRONTEND=noninteractive
-        sudo apt update && sudo apt upgrade -y
-        sudo apt install repo git python3 -y
+        # 避免 apt upgrade 占用过多磁盘/时间（runner 磁盘告警过）；仅装缺的工具
+        sudo apt update -y
+        command -v repo >/dev/null || sudo apt install -y repo
         git config --global user.name "${{ github.actor }}"
         git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
@@ -104,12 +105,14 @@ jobs:
         export CCACHE_EXEC=$(command -v ccache)
         export CCACHE_MAXSIZE=5G
         export USE_CCACHE=1
-        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng
-        (while true; do echo "$(date +%T) Building OrangeFox..."; free -h; sleep 10; done) &
+        # fox_14.1/twrp-14 的 lunch 必须带 release 段：<product>-<release>-<variant>
+        # （与 OnePlus15 参考树 fox_14.1 一致，release=ap2a）
+        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-ap2a-eng
+        (while true; do echo "$(date +%T) Building OrangeFox..."; free -h; df -h | tail -4; sleep 10; done) &
         TIP_PID=$!
         mka recoveryimage
         kill $TIP_PID
-        ls -la out/target/product/${{ github.event.inputs.DEVICE_NAME }}/ | grep -iE 'img'
+        ls -la out/target/product/${{ github.event.inputs.DEVICE_NAME }}/ | grep -iE '\.img$'
 
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
