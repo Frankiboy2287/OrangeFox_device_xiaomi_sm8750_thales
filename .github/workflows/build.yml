@@ -40,11 +40,8 @@ jobs:
         } >> "$GITHUB_ENV"
         echo "BUILD_DATE=$(date +%F)" >> "$GITHUB_ENV"
 
-    # 拿当前设备树仓库（即本 repo）
-    - name: Checkout device tree
-      uses: actions/checkout@v4
-      with:
-        path: device/${{ github.event.inputs.DEVICE_PATH }}
+    # 注意：不要在 maximize-build-space 之前 checkout 任何内容——该 action 会重挂载
+    # $GITHUB_WORKSPACE 并清空其中的旧文件。设备树改为同步源码后 clone 进源码树。
 
     - name: Cleanup
       uses: rokibhasansagar/slimhub_actions@main
@@ -78,21 +75,23 @@ jobs:
       run: |
         export LC_ALL=C
         cd "$GITHUB_WORKSPACE"
-        # OrangeFox 官方同步脚本（GitLab）
+        # OrangeFox 官方同步脚本（GitLab），--path 必须是绝对路径
         git clone https://gitlab.com/OrangeFox/sync.git
         cd sync
         ./orangefox_sync.sh --branch "${{ github.event.inputs.OFOX_BRANCH }}" --path "$GITHUB_WORKSPACE/fo_source"
 
-    - name: Move device tree into source tree
+    # 设备树 = 本仓库（OrangeFox device tree），clone 进同步好的源码树
+    - name: Clone device tree into source tree
       run: |
         cd "$GITHUB_WORKSPACE/fo_source/device"
         mkdir -p "${{ github.event.inputs.DEVICE_PATH }}"
-        # 把 check-out 的设备树放到 device/<vendor>/<codename>
-        cp -rf "$GITHUB_WORKSPACE/device/${{ github.event.inputs.DEVICE_PATH }}"/* "$GITHUB_WORKSPACE/fo_source/device/${{ github.event.inputs.DEVICE_PATH }}"/
-        # 备份于设备树目录生成 INFO.txt
+        git clone --depth 1 -b "${{ github.ref_name }}" \
+          "https://github.com/${{ github.repository }}.git" \
+          "${{ github.event.inputs.DEVICE_PATH }}"
         echo -e "$BUILD_INFO" >> "$GITHUB_WORKSPACE/fo_source/device/${{ github.event.inputs.DEVICE_PATH }}/INFO.txt"
+        echo "--- device tree top files ---"
+        ls -1 "${{ github.event.inputs.DEVICE_PATH }}" | head -30
 
-    # 从 vendorsetup.sh 导出 FOX_* 构建变量
     - name: Build OrangeFox recoveryimage
       run: |
         export LC_ALL=C
