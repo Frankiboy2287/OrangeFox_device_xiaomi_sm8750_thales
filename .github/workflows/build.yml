@@ -95,6 +95,9 @@ jobs:
       run: |
         WORKINGDIR="$GITHUB_WORKSPACE/fo_source"
         cd "$WORKINGDIR/bootable/recovery"
+        # 固定到 adontoo 实测可用的橙狐提交（否则最新 fox_14.1 tip 与补丁不匹配，git apply 会失败）
+        git fetch origin c96bc290 2>/dev/null || true
+        git checkout c96bc290 2>/dev/null || true
         git apply "$WORKINGDIR/device/${{ github.event.inputs.DEVICE_PATH }}/patches/"*.patch
         cd "$WORKINGDIR"
         git clone https://github.com/adontoo/android_external_libmicrohttpd -b ofox-14.1 external/libmicrohttpd
