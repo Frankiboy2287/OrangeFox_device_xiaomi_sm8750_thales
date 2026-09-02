@@ -89,5 +89,5 @@ service odm.vibratorfeature-service /odm/bin/hw/vendor.xiaomi.hardware.vibratorf
     disabled
     seclabel u:r:recovery:s0
 
-on property:servicemanager.ready=true
+on property:sys.boot_completed=1
     setprop vendor.haptic.calibrate.done 1

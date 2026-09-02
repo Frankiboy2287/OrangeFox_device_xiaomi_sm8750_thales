@@ -1,12 +1,8 @@
-name: OrangeFox Builder (SM8750 thales)
+name: OFRP 14.1 Builder (SM8750 thales)
 
 on:
   workflow_dispatch:
     inputs:
-      OFOX_BRANCH:
-        description: "OrangeFox sync branch"
-        required: true
-        default: "14.1"
       DEVICE_PATH:
         description: "Device path device/"
         required: true
@@ -31,7 +27,6 @@ jobs:
         {
           echo 'BUILD_INFO<<EOF'
           echo
-          echo OrangeFox branch: ${{ github.event.inputs.OFOX_BRANCH }}
           echo Device path: ${{ github.event.inputs.DEVICE_PATH }}
           echo Device name: ${{ github.event.inputs.DEVICE_NAME }}
           echo Build date: $(date)
@@ -40,8 +35,7 @@ jobs:
         } >> "$GITHUB_ENV"
         echo "BUILD_DATE=$(date +%F)" >> "$GITHUB_ENV"
 
-    # 注意：不要在 maximize-build-space 之前 checkout 任何内容——该 action 会重挂载
-    # $GITHUB_WORKSPACE 并清空其中的旧文件。设备树改为同步源码后 clone 进源码树。
+    # 不要在 maximize-build-space 之前 checkout 任何内容（它会重挂载并清空工作区）
 
     - name: Cleanup
       uses: rokibhasansagar/slimhub_actions@main
@@ -68,22 +62,21 @@ jobs:
     - name: Setup environment
       run: |
         export DEBIAN_FRONTEND=noninteractive
-        # 避免 apt upgrade 占用过多磁盘/时间（runner 磁盘告警过）；仅装缺的工具
         sudo apt update -y
         command -v repo >/dev/null || sudo apt install -y repo
         git config --global user.name "${{ github.actor }}"
         git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
-    - name: Sync OrangeFox source (fox_${{ github.event.inputs.OFOX_BRANCH }})
+    # 等价于 adontoo 的 "repo init nebrassy twrp-14 + orangefox_sync 14.1"：
+    # 脚本内部会 repo init/sync twrp-14 minimal manifest + 打橙狐补丁 + 拉 OFOX recovery/vendor
+    - name: Sync OrangeFox source (fox_14.1)
       run: |
         export LC_ALL=C
         cd "$GITHUB_WORKSPACE"
-        # OrangeFox 官方同步脚本（GitLab），--path 必须是绝对路径
         git clone https://gitlab.com/OrangeFox/sync.git
         cd sync
-        ./orangefox_sync.sh --branch "${{ github.event.inputs.OFOX_BRANCH }}" --path "$GITHUB_WORKSPACE/fo_source"
+        ./orangefox_sync.sh --branch 14.1 --path "$GITHUB_WORKSPACE/fo_source"
 
-    # 设备树 = 本仓库（OrangeFox device tree），clone 进同步好的源码树
     - name: Clone device tree into source tree
       run: |
         cd "$GITHUB_WORKSPACE/fo_source/device"
@@ -92,35 +85,41 @@ jobs:
           "https://github.com/${{ github.repository }}.git" \
           "${{ github.event.inputs.DEVICE_PATH }}"
         echo -e "$BUILD_INFO" >> "$GITHUB_WORKSPACE/fo_source/device/${{ github.event.inputs.DEVICE_PATH }}/INFO.txt"
-        echo "--- device tree top files ---"
         ls -1 "${{ github.event.inputs.DEVICE_PATH }}" | head -30
+
+    # 关键：这是让橙狐在 SM8750 上能启动的 recipe（来自 adontoo 实测可用方案）
+    #  1) 对 bootable/recovery 打补丁（openaes C23 修复 + WLAN/microhttpd）
+    #  2) 用 adontoo fork 的 bionic 替换原版 bionic（骁龙8 Elite/Oryon 相关修复，开机卡 logo 的根因）
+    #  3) 加入 external/libmicrohttpd
+    - name: Apply OFOX patches & swap bionic
+      run: |
+        WORKINGDIR="$GITHUB_WORKSPACE/fo_source"
+        cd "$WORKINGDIR/bootable/recovery"
+        git apply "$WORKINGDIR/device/${{ github.event.inputs.DEVICE_PATH }}/patches/"*.patch
+        cd "$WORKINGDIR"
+        git clone https://github.com/adontoo/android_external_libmicrohttpd -b ofox-14.1 external/libmicrohttpd
+        rm -rf bionic
+        git clone https://github.com/adontoo/OrangeFox-android_platform_bionic bionic
 
     - name: Build OrangeFox recoveryimage
       run: |
         export LC_ALL=C
         cd "$GITHUB_WORKSPACE/fo_source"
         source build/envsetup.sh
-        # 加载设备树 vendorsetup.sh（FOX_* 变量）
-        source device/${{ github.event.inputs.DEVICE_PATH }}/vendorsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        # ccache 目录由 ccache-action 托管并在各轮之间自动缓存：
-        # 不要自行 export CCACHE_DIR 覆盖它（否则缓存不会跨轮复用）
         export USE_CCACHE=1
         export CCACHE_EXEC=$(command -v ccache)
-        # fox_14.1/twrp-14 的 lunch 必须带 release 段：<product>-<release>-<variant>
-        # （与 OnePlus15 参考树 fox_14.1 一致，release=ap2a）
         lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-ap2a-eng
-        (while true; do echo "$(date +%T) Building OrangeFox..."; free -h; df -h | tail -4; sleep 10; done) &
+        (while true; do echo "$(date +%T) Building OFRP..."; free -h; df -h | tail -4; sleep 10; done) &
         TIP_PID=$!
-        mka recoveryimage
+        mka adbd recoveryimage
         kill $TIP_PID
         ls -la out/target/product/${{ github.event.inputs.DEVICE_NAME }}/ | grep -iE '\.img$'
 
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
       with:
-        # 只上传最终可刷写的成品（OrangeFox 命名 + 通用 recovery.img），
-        # 跳过 ramdisk*.img 等中间产物
+        # 只上传最终可刷写的成品（跳过 ramdisk 中间产物）
         files: |
           fo_source/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox-*.img
           fo_source/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/recovery.img

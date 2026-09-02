@@ -20,8 +20,6 @@ $(call inherit-product, $(SRC_TARGET_DIR)/product/emulated_storage.mk)
 $(call inherit-product, vendor/twrp/config/common.mk)
 
 # API
-# OrangeFox fox_14.1 基底为 Android 14 (SDK 34)，必须 ≤ BOARD_SYSTEMSDK_VERSIONS(34)，
-# 否则报 config.mk:865 错误（原树按 TWRP16/API35 编写，此处下调为 34）
 BOARD_SHIPPING_API_LEVEL := 34
 PRODUCT_SHIPPING_API_LEVEL := 34
 PRODUCT_TARGET_VNDK_VERSION := 34
@@ -43,6 +41,3 @@ TWRP_REQUIRED_MODULES += \
 # Soong namespaces
 PRODUCT_SOONG_NAMESPACES += \
     $(DEVICE_PATH)
-
-# OrangeFox-specific settings (OF_* build variables)
-$(call inherit-product, $(DEVICE_PATH)/fox_sm8750_thales.mk)

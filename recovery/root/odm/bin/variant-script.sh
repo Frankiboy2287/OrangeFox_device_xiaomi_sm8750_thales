@@ -30,31 +30,22 @@ set_vibrator_props() {
 case "$variant" in
 "dada")
     model="$base_name"
-    resetprop ro.twrp.device_version "Xiaomi_15"
-    resetprop ro.twrp.y_offset "111"
-    resetprop ro.twrp.h_offset "-111"
     resetprop vendor.display.enable_spr "1"
-    set_vibrator_props "170" "35" "/sys/class/qcom-haptics" "ff"
+    set_vibrator_props "170" "35" "/sys/class/qcom-haptics" "agm"
     ;;
 
 "haotian")
     model="$base_name Pro"
-    resetprop ro.twrp.device_version "Xiaomi_15_Pro"
-    resetprop ro.twrp.y_offset "116"
-    resetprop ro.twrp.h_offset "-116"
     resetprop vendor.display.enable_spr "1"
     resetprop ro.odm.mm.vibrator.cirrus "true"
     resetprop ro.odm.mm.vibrator.lowPowerMode "true"
-    set_vibrator_props "130" "20" "/sys/bus/i2c/drivers/cs40l26/0-0043" "ff"
+    set_vibrator_props "130" "20" "/sys/bus/i2c/drivers/cs40l26/0-0043" "agm"
     ;;
 
 "xuanyuan")
     model="$base_name Ultra"
-    resetprop ro.twrp.device_version "Xiaomi_15_Ultra"
-    resetprop ro.twrp.y_offset "116"
-    resetprop ro.twrp.h_offset "-116"
     resetprop ro.odm.mm.vibrator.he1.0 "mihaptic"
-    set_vibrator_props "170" "20" "/sys/class/qcom-haptics" "ff"
+    set_vibrator_props "170" "20" "/sys/class/qcom-haptics" "agm"
     ;;
 
 *)
@@ -64,7 +55,7 @@ case "$variant" in
     log "Unknown variant: $variant, applying default configuration (SM8750)"
     variant="SM8750"
     model="SM8750"
-    set_vibrator_props "170" "35" "/sys/class/qcom-haptics" "ff"
+    set_vibrator_props "170" "35" "/sys/class/qcom-haptics" "agm"
     ;;
 esac
 
@@ -72,8 +63,6 @@ esac
 # Common configuration
 #-------------------------------------------------
 echo "$model" >/config/usb_gadget/g1/strings/0x409/product
-resetprop vendor.usb.product_string "$model"
-mkdir -p /usbotg
 
 #-------------------------------------------------
 # Set product & model properties
@@ -115,14 +104,8 @@ done
 #-------------------------------------------------
 # Copy variant-specific files
 #-------------------------------------------------
-# set -e is on, so an unknown SKU with no overlay would abort the script here
-# and never raise files_copied, leaving weaver, haptics and touch unstarted.
-if [ -d "/odm/variant/$variant/odm" ]; then
-    cp -rf /odm/variant/$variant/odm/* /odm
-    chmod -R 755 /odm/bin/*
-else
-    log "No overlay for $variant, keeping the base odm"
-fi
+cp -rf /odm/variant/$variant/odm/* /odm
+chmod -R 755 /odm/bin/*
 setprop twrp.variant.files_copied "1"
 
 #-------------------------------------------------

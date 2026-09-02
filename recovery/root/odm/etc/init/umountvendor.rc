@@ -1,0 +1,6 @@
+service odm.umountvendor /odm/bin/umountvendor.sh
+    user root
+    group root
+    disabled
+    oneshot
+    seclabel u:r:recovery:s0

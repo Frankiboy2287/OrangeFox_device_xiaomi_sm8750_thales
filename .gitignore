@@ -1,7 +1,2 @@
-# 构建产物 / 临时文件（设备树里的 *.img 是厂商固件，必须保留，不要忽略）
-out/
-.ccache/
-INFO.txt
+recovery/root/twres/splash.xml
 
-# VCS
-.git/
