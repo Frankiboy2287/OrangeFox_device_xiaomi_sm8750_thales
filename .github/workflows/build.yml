@@ -1,0 +1,124 @@
+name: OrangeFox Builder (SM8750 thales)
+
+on:
+  workflow_dispatch:
+    inputs:
+      OFOX_BRANCH:
+        description: "OrangeFox sync branch"
+        required: true
+        default: "14.1"
+      DEVICE_PATH:
+        description: "Device path device/"
+        required: true
+        default: "xiaomi/sm8750_thales"
+      DEVICE_NAME:
+        description: "Device name"
+        required: true
+        default: "sm8750_thales"
+
+concurrency:
+  group: ofox-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Show build info
+      run: |
+        {
+          echo 'BUILD_INFO<<EOF'
+          echo
+          echo OrangeFox branch: ${{ github.event.inputs.OFOX_BRANCH }}
+          echo Device path: ${{ github.event.inputs.DEVICE_PATH }}
+          echo Device name: ${{ github.event.inputs.DEVICE_NAME }}
+          echo Build date: $(date)
+          echo
+          echo EOF
+        } >> "$GITHUB_ENV"
+        echo "BUILD_DATE=$(date +%F)" >> "$GITHUB_ENV"
+
+    # 拿当前设备树仓库（即本 repo）
+    - name: Checkout device tree
+      uses: actions/checkout@v4
+      with:
+        path: device/${{ github.event.inputs.DEVICE_PATH }}
+
+    - name: Cleanup
+      uses: rokibhasansagar/slimhub_actions@main
+
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@master
+
+    - name: Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        create-symlink: true
+
+    - name: Setup zram
+      run: |
+        sudo apt install linux-modules-extra-$(uname -r) zram-tools -y
+        sudo modprobe zram
+        sudo sed -i 's/^#PERCENT=50/PERCENT=90/' /etc/default/zramswap
+        sudo sed -i 's/^#PRIORITY=100/PRIORITY=1000/' /etc/default/zramswap
+        sudo systemctl restart zramswap
+        zramctl
+
+    - name: Setup environment
+      run: |
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt update && sudo apt upgrade -y
+        sudo apt install repo git python3 -y
+        git config --global user.name "${{ github.actor }}"
+        git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+
+    - name: Sync OrangeFox source (fox_${{ github.event.inputs.OFOX_BRANCH }})
+      run: |
+        export LC_ALL=C
+        cd "$GITHUB_WORKSPACE"
+        # OrangeFox 官方同步脚本（GitLab）
+        git clone https://gitlab.com/OrangeFox/sync.git
+        cd sync
+        ./orangefox_sync.sh --branch "${{ github.event.inputs.OFOX_BRANCH }}" --path "$GITHUB_WORKSPACE/fo_source"
+
+    - name: Move device tree into source tree
+      run: |
+        cd "$GITHUB_WORKSPACE/fo_source/device"
+        mkdir -p "${{ github.event.inputs.DEVICE_PATH }}"
+        # 把 check-out 的设备树放到 device/<vendor>/<codename>
+        cp -rf "$GITHUB_WORKSPACE/device/${{ github.event.inputs.DEVICE_PATH }}"/* "$GITHUB_WORKSPACE/fo_source/device/${{ github.event.inputs.DEVICE_PATH }}"/
+        # 备份于设备树目录生成 INFO.txt
+        echo -e "$BUILD_INFO" >> "$GITHUB_WORKSPACE/fo_source/device/${{ github.event.inputs.DEVICE_PATH }}/INFO.txt"
+
+    # 从 vendorsetup.sh 导出 FOX_* 构建变量
+    - name: Build OrangeFox recoveryimage
+      run: |
+        export LC_ALL=C
+        cd "$GITHUB_WORKSPACE/fo_source"
+        source build/envsetup.sh
+        # 加载设备树 vendorsetup.sh（FOX_* 变量）
+        source device/${{ github.event.inputs.DEVICE_PATH }}/vendorsetup.sh
+        export ALLOW_MISSING_DEPENDENCIES=true
+        export CCACHE_DIR=.ccache
+        export CCACHE_EXEC=$(command -v ccache)
+        export CCACHE_MAXSIZE=5G
+        export USE_CCACHE=1
+        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng
+        (while true; do echo "$(date +%T) Building OrangeFox..."; free -h; sleep 10; done) &
+        TIP_PID=$!
+        mka recoveryimage
+        kill $TIP_PID
+        ls -la out/target/product/${{ github.event.inputs.DEVICE_NAME }}/ | grep -iE 'img'
+
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          fo_source/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.img
+        name: OrangeFox-R12-${{ github.event.inputs.DEVICE_NAME }}-${{ env.BUILD_DATE }}-${{ github.run_id }}
+        tag_name: ${{ env.BUILD_DATE }}-${{ github.run_id }}
+        body_path: fo_source/device/${{ github.event.inputs.DEVICE_PATH }}/INFO.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
