@@ -53,6 +53,8 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         create-symlink: true
+        max-size: 4G
+        append-timestamp: false
 
     - name: Setup zram
       run: |
@@ -101,10 +103,10 @@ jobs:
         # 加载设备树 vendorsetup.sh（FOX_* 变量）
         source device/${{ github.event.inputs.DEVICE_PATH }}/vendorsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        export CCACHE_DIR=.ccache
-        export CCACHE_EXEC=$(command -v ccache)
-        export CCACHE_MAXSIZE=5G
+        # ccache 目录由 ccache-action 托管并在各轮之间自动缓存：
+        # 不要自行 export CCACHE_DIR 覆盖它（否则缓存不会跨轮复用）
         export USE_CCACHE=1
+        export CCACHE_EXEC=$(command -v ccache)
         # fox_14.1/twrp-14 的 lunch 必须带 release 段：<product>-<release>-<variant>
         # （与 OnePlus15 参考树 fox_14.1 一致，release=ap2a）
         lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-ap2a-eng
